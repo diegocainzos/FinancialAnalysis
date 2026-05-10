@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+from unittest.mock import patch
 from datetime import datetime, timezone
 from pathlib import Path
 
 from ingestion.bluesky_client import BlueskyClient
 from nlp.cleaner import clean_text
 from nlp.mention_detector import MentionDetector
-from nlp.sentiment_analyzer import VaderSentimentAnalyzer
+from nlp.sentiment_analyzer import FinBertSentimentAnalyzer, VaderSentimentAnalyzer
+from pipeline.process_sentiment import build_analyzer
 from storage.sqlite_store import Company, SQLiteStore
 
 
@@ -192,6 +194,38 @@ class SentimentAnalyzerTests(unittest.TestCase):
         self.assertEqual(negative.label, "negative")
         self.assertLess(negative.score, 0)
         self.assertEqual(neutral.label, "neutral")
+
+    def test_finbert_maps_labels_to_pipeline_result_shape(self) -> None:
+        outputs = [
+            [{"label": "positive", "score": 0.97}],
+            [{"label": "negative", "score": 0.88}],
+            [{"label": "neutral", "score": 0.62}],
+        ]
+
+        def fake_classifier(text: str, **kwargs):  # type: ignore[no-untyped-def]
+            return outputs.pop(0)
+
+        analyzer = FinBertSentimentAnalyzer(classifier=fake_classifier)
+
+        positive = analyzer.analyze("Strong guidance and better margins")
+        negative = analyzer.analyze("Guidance cut and weaker demand")
+        neutral = analyzer.analyze("Company held an investor event")
+
+        self.assertEqual(positive.label, "positive")
+        self.assertGreater(positive.score, 0)
+        self.assertEqual(negative.label, "negative")
+        self.assertLess(negative.score, 0)
+        self.assertEqual(neutral.label, "neutral")
+        self.assertEqual(neutral.score, 0.0)
+
+    def test_process_pipeline_uses_finbert_by_default(self) -> None:
+        with patch("pipeline.process_sentiment.FinBertSentimentAnalyzer") as finbert_cls:
+            sentinel = object()
+            finbert_cls.return_value = sentinel
+            analyzer = build_analyzer(model="finbert")
+
+        self.assertIs(analyzer, sentinel)
+        finbert_cls.assert_called_once_with()
 
     def test_clean_text_removes_urls_and_normalizes_whitespace(self) -> None:
         self.assertEqual(clean_text("TSLA   up\nhttps://example.com"), "TSLA up")

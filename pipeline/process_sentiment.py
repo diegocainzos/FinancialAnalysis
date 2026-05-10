@@ -9,19 +9,28 @@ from __future__ import annotations
 import argparse
 
 from nlp.cleaner import clean_text
-from nlp.sentiment_analyzer import VaderSentimentAnalyzer
+from nlp.sentiment_analyzer import FinBertSentimentAnalyzer, SentimentAnalyzer, VaderSentimentAnalyzer
 from storage.sqlite_store import SQLiteStore
+
+
+def build_analyzer(*, model: str) -> SentimentAnalyzer:
+    if model == "finbert":
+        return FinBertSentimentAnalyzer()
+    if model == "vader":
+        return VaderSentimentAnalyzer()
+    raise ValueError(f"Unsupported model: {model}")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Process pending document sentiment")
     parser.add_argument("--db", default="data/sentiment.db")
     parser.add_argument("--limit", type=int, default=100)
+    parser.add_argument("--model", choices=["finbert", "vader"], default="finbert")
     args = parser.parse_args()
 
     store = SQLiteStore(args.db)
     store.init_schema()
-    analyzer = VaderSentimentAnalyzer()
+    analyzer = build_analyzer(model=args.model)
 
     pending = store.list_documents_pending_sentiment(
         model_name=analyzer.model_name,

@@ -1,10 +1,10 @@
-"""Sentiment analyzer interface and lightweight default implementation."""
+"""Sentiment analyzer interface and implementations."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
 import re
+from typing import Any, Protocol
 
 
 @dataclass(frozen=True)
@@ -22,13 +22,62 @@ class SentimentAnalyzer(Protocol):
         ...
 
 
-class VaderSentimentAnalyzer:
-    """VADER-style analyzer with dependency-free fallback.
+class FinBertSentimentAnalyzer:
+    """Hugging Face FinBERT sentiment analyzer.
 
-    If `vaderSentiment` is installed, this uses the real VADER analyzer. If not,
-    it falls back to a small deterministic finance/social lexicon so the project
-    and tests still run without external dependencies.
+    Model: ProsusAI/finbert
     """
+
+    def __init__(
+        self,
+        *,
+        model_id: str = "ProsusAI/finbert",
+        classifier: Any | None = None,
+    ) -> None:
+        self.model_id = model_id
+        self.model_name = f"finbert:{model_id}"
+
+        if classifier is not None:
+            self._classifier = classifier
+            return
+
+        try:
+            from transformers import pipeline
+        except ImportError as exc:  # pragma: no cover - dependency error path
+            raise RuntimeError(
+                "transformers is required to use FinBERT sentiment analyzer"
+            ) from exc
+
+        try:
+            self._classifier = pipeline(
+                task="text-classification",
+                model=model_id,
+                tokenizer=model_id,
+            )
+        except OSError as exc:  # pragma: no cover - model download/load error path
+            raise RuntimeError(
+                f"Unable to load FinBERT model '{model_id}'. "
+                "Verify internet access or local cache."
+            ) from exc
+
+    def analyze(self, text: str) -> SentimentResult:
+        raw = self._classifier(text, truncation=True, max_length=512)
+        prediction = raw[0] if isinstance(raw, list) else raw
+
+        label = _normalize_finbert_label(str(prediction["label"]))
+        confidence = float(prediction.get("score", 0.0))
+        score = _finbert_score(label, confidence)
+
+        return SentimentResult(
+            label=label,
+            score=score,
+            confidence=confidence,
+            model_name=self.model_name,
+        )
+
+
+class VaderSentimentAnalyzer:
+    """VADER-style analyzer with dependency-free fallback."""
 
     model_name = "vader-fallback"
 
@@ -54,6 +103,29 @@ class VaderSentimentAnalyzer:
             confidence=_confidence_from_score(compound, label),
             model_name=self.model_name,
         )
+
+
+def _normalize_finbert_label(label: str) -> str:
+    normalized = label.strip().lower()
+    mapping = {
+        "positive": "positive",
+        "negative": "negative",
+        "neutral": "neutral",
+        "label_0": "negative",
+        "label_1": "neutral",
+        "label_2": "positive",
+    }
+    if normalized not in mapping:
+        raise ValueError(f"Unsupported FinBERT label: {label}")
+    return mapping[normalized]
+
+
+def _finbert_score(label: str, confidence: float) -> float:
+    if label == "positive":
+        return min(1.0, max(0.0, confidence))
+    if label == "negative":
+        return -min(1.0, max(0.0, confidence))
+    return 0.0
 
 
 def _label_from_score(score: float) -> str:

@@ -42,9 +42,10 @@ Implemented MVP pieces:
 
 - **Sentiment processing MVP**
   - Files: `nlp/sentiment_analyzer.py`, `nlp/cleaner.py`, `pipeline/process_sentiment.py`
-  - Default analyzer: VADER if `vaderSentiment` is installed; otherwise a deterministic local finance/social lexicon fallback.
+  - Default analyzer: FinBERT (`ProsusAI/finbert`) via Hugging Face Transformers.
+  - Optional fallback analyzer: VADER/local lexicon (`--model vader`).
   - Saves per-company/per-document results into `sentiment_results`.
-  - CLI command: `python3 -m pipeline.process_sentiment --limit 100`
+  - CLI command: `python3 -m pipeline.process_sentiment --limit 100 --model finbert`
 
 - **Tests**
   - File: `tests/test_pipeline_modules.py`
@@ -269,7 +270,7 @@ limit 20;
 
 ## Risks and Decisions Needed
 
-- **Sentiment model choice**: FinBERT is finance-aware but may not be ideal for short, informal social posts. Need explicit model comparison before locking it in.
+- **Sentiment model choice**: FinBERT is now the default. Still evaluate against VADER on short/informal posts before production lock-in.
 - **False positives in mention detection**: Names like Apple, Amazon, Meta, Ford, and aliases like Mac can be ambiguous.
 - **Bluesky search limits/rate limits**: Current implementation lacks retry/backoff and cursor pagination beyond the first page.
 - **SQLite concurrency**: Current approach fetches concurrently but writes synchronously, which is safe for MVP. PostgreSQL should replace SQLite for multi-worker production use.
