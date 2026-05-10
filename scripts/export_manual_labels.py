@@ -9,6 +9,22 @@ import sqlite3
 from pathlib import Path
 
 
+def _load_existing_annotations(path: Path) -> dict[str, dict[str, str]]:
+    if not path.exists():
+        return {}
+    existing = {}
+    with path.open(encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            key = (row.get("sentiment_result_id") or "").strip()
+            if not key:
+                continue
+            existing[key] = {
+                "manual_label": (row.get("manual_label") or "").strip(),
+                "notes": (row.get("notes") or "").strip(),
+            }
+    return existing
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Export rows for manual sentiment labeling")
     parser.add_argument("--db", default="data/sentiment.db", help="SQLite database path")
@@ -54,6 +70,8 @@ def main() -> None:
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
 
+    existing_annotations = _load_existing_annotations(output)
+
     fieldnames = [
         "sentiment_result_id",
         "raw_document_id",
@@ -70,10 +88,21 @@ def main() -> None:
     with output.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
+        preserved = 0
         for row in rows:
-            writer.writerow(dict(row))
+            payload = dict(row)
+            existing = existing_annotations.get(str(payload["sentiment_result_id"]))
+            if existing:
+                payload["manual_label"] = existing["manual_label"]
+                payload["notes"] = existing["notes"]
+                if existing["manual_label"] or existing["notes"]:
+                    preserved += 1
+            writer.writerow(payload)
 
-    print(f"Exported {len(rows)} rows to {output}")
+    print(
+        f"Exported {len(rows)} rows to {output} "
+        f"(preserved annotations: {preserved})"
+    )
 
 
 if __name__ == "__main__":

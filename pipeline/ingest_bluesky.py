@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 from dataclasses import dataclass
+from urllib.error import HTTPError, URLError
 
 from ingestion.bluesky_client import BlueskyClient, BlueskyPost
 from nlp.mention_detector import MentionDetector
@@ -112,7 +113,11 @@ async def _search_company_query(
     lang: str | None,
 ) -> SearchResult:
     async with semaphore:
-        posts, _cursor = await client.search_posts(query, limit=limit, lang=lang)
+        try:
+            posts, _cursor = await client.search_posts(query, limit=limit, lang=lang)
+        except (HTTPError, URLError, TimeoutError, OSError) as exc:
+            print(f"Warning: skipping query '{query}' due to request error: {exc}")
+            posts = []
     return SearchResult(company_id=company_id, query=query, posts=posts)
 
 
