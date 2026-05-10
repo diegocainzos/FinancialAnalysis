@@ -9,6 +9,10 @@ dependencies = [
   "transformers>=4.51.0",
   "huggingface_hub>=0.31.0",
   "vadersentiment>=3.3.2",
+  "httpx>=0.28.0",
+  "streamlit>=1.57.0",
+  "pandas>=3.0.2",
+  "plotly>=6.7.0",
 ]
 
 [dependency-groups]

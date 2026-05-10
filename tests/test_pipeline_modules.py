@@ -8,8 +8,10 @@ from pathlib import Path
 
 from ingestion.bluesky_client import BlueskyClient
 from nlp.cleaner import clean_text
+from nlp.market_relevance import KeywordMarketRelevanceFilter, parse_hf_gguf_ref, parse_yes_no_response
 from nlp.mention_detector import MentionDetector
 from nlp.sentiment_analyzer import FinBertSentimentAnalyzer, VaderSentimentAnalyzer
+from pipeline.ingest_bluesky import _queries_for_company
 from pipeline.process_sentiment import build_analyzer
 from storage.sqlite_store import Company, SQLiteStore
 
@@ -179,6 +181,45 @@ class SQLiteStoreTests(unittest.TestCase):
             self.assertEqual(pending_after, [])
             self.assertEqual(count, 1)
             store.close()
+
+
+class MarketRelevanceTests(unittest.TestCase):
+    def test_keyword_filter_accepts_market_text_and_rejects_product_text(self) -> None:
+        relevance = KeywordMarketRelevanceFilter()
+
+        self.assertTrue(
+            relevance.is_market_relevant(
+                ticker="AAPL",
+                company_name="Apple",
+                text="AAPL stock jumps after strong earnings and raised guidance",
+            )
+        )
+        self.assertFalse(
+            relevance.is_market_relevant(
+                ticker="AAPL",
+                company_name="Apple",
+                text="I bought a new Apple Watch and I love it",
+            )
+        )
+
+    def test_parse_hf_gguf_ref_rejects_invalid_format(self) -> None:
+        with self.assertRaises(ValueError):
+            parse_hf_gguf_ref("mradermacher/Huihui-gemma-4-E2B-it-abliterated-GGUF")
+
+    def test_parse_yes_no_response_handles_accents_and_case(self) -> None:
+        self.assertTrue(parse_yes_no_response("SI"))
+        self.assertTrue(parse_yes_no_response("Sí, relevante"))
+        self.assertFalse(parse_yes_no_response("no"))
+        self.assertTrue(parse_yes_no_response("quizas"))  # defaults to True now
+
+
+class PipelineQueryTests(unittest.TestCase):
+    def test_queries_for_company_are_market_oriented(self) -> None:
+        queries = _queries_for_company("TSLA", "Tesla")
+        self.assertIn("$TSLA", queries)
+        self.assertIn("TSLA earnings", queries)
+        self.assertIn("Tesla guidance", queries)
+        self.assertNotIn("TSLA", queries)
 
 
 class SentimentAnalyzerTests(unittest.TestCase):
