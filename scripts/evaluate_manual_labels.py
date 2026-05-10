@@ -3,16 +3,18 @@
 
 Computes:
 - Accuracy
-- Recall (macro + por clase)
-- F1 score (macro + por clase)
+- Recall (macro + weighted + por clase)
+- F1 score (macro + weighted + por clase)
 - Confusion matrix (manual -> predicción)
+Optionally writes a JSON report for history tracking.
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
-from collections import defaultdict
+import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 LABELS = ("negative", "neutral", "positive")
@@ -30,6 +32,10 @@ def main() -> None:
         "--csv",
         default="data/manual_labeling_finbert.csv",
         help="CSV exported for manual labeling",
+    )
+    parser.add_argument(
+        "--output-json",
+        help="Optional path to write a JSON evaluation report",
     )
     args = parser.parse_args()
 
@@ -74,7 +80,7 @@ def main() -> None:
     for manual, pred in labeled_rows:
         confusion[manual][pred] += 1
 
-    per_class_metrics = {}
+    per_class_metrics: dict[str, dict[str, float | int]] = {}
     for label in LABELS:
         tp = confusion[label][label]
         fn = sum(confusion[label][p] for p in LABELS if p != label)
@@ -92,21 +98,31 @@ def main() -> None:
             "support": support,
         }
 
-    macro_recall = sum(per_class_metrics[l]["recall"] for l in LABELS) / len(LABELS)
-    macro_f1 = sum(per_class_metrics[l]["f1"] for l in LABELS) / len(LABELS)
+    macro_recall = sum(float(per_class_metrics[l]["recall"]) for l in LABELS) / len(LABELS)
+    macro_f1 = sum(float(per_class_metrics[l]["f1"]) for l in LABELS) / len(LABELS)
+    weighted_recall = _safe_div(
+        sum(float(per_class_metrics[l]["recall"]) * int(per_class_metrics[l]["support"]) for l in LABELS),
+        total,
+    )
+    weighted_f1 = _safe_div(
+        sum(float(per_class_metrics[l]["f1"]) * int(per_class_metrics[l]["support"]) for l in LABELS),
+        total,
+    )
 
     print(f"Total manually labeled rows: {total}")
     print(f"Accuracy: {accuracy:.4f}")
     print(f"Recall (macro): {macro_recall:.4f}")
+    print(f"Recall (weighted): {weighted_recall:.4f}")
     print(f"F1 score (macro): {macro_f1:.4f}")
+    print(f"F1 score (weighted): {weighted_f1:.4f}")
 
     print("\nPer-class metrics:")
     for label in LABELS:
         metric = per_class_metrics[label]
         print(
-            f"- {label}: precision={metric['precision']:.4f} "
-            f"recall={metric['recall']:.4f} f1={metric['f1']:.4f} "
-            f"support={metric['support']}"
+            f"- {label}: precision={float(metric['precision']):.4f} "
+            f"recall={float(metric['recall']):.4f} f1={float(metric['f1']):.4f} "
+            f"support={int(metric['support'])}"
         )
 
     print("\nConfusion matrix (manual -> finbert):")
@@ -114,6 +130,27 @@ def main() -> None:
     for manual in LABELS:
         counts = [str(confusion[manual][pred]) for pred in LABELS]
         print(f"{manual}," + ",".join(counts))
+
+    if args.output_json:
+        payload = {
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "source_csv": str(path),
+            "total_labeled_rows": total,
+            "metrics": {
+                "accuracy": accuracy,
+                "recall_macro": macro_recall,
+                "recall_weighted": weighted_recall,
+                "f1_macro": macro_f1,
+                "f1_weighted": weighted_f1,
+            },
+            "per_class": per_class_metrics,
+            "confusion_matrix": confusion,
+            "labels": list(LABELS),
+        }
+        output = Path(args.output_json)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        print(f"\nJSON report written to: {output}")
 
 
 if __name__ == "__main__":

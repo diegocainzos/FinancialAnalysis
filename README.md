@@ -163,10 +163,16 @@ python3 scripts/export_manual_labels.py --db data/sentiment.db --output data/man
 python3 scripts/evaluate_manual_labels.py --csv data/manual_labeling_finbert.csv
 ```
 
+Opcional: guardar reporte JSON para histórico:
+
+```bash
+python3 scripts/evaluate_manual_labels.py --csv data/manual_labeling_finbert.csv --output-json data/metrics/finbert_eval.json
+```
+
 Métricas reportadas:
 - Accuracy
-- Recall (macro y por clase)
-- F1 score (macro y por clase)
+- Recall (macro, weighted y por clase)
+- F1 score (macro, weighted y por clase)
 - Matriz de confusión (manual -> finbert)
 
 ## Estado actual
