@@ -149,11 +149,25 @@ limit 20;
 
 Flujo recomendado:
 
-1. Exportar un CSV con texto + predicción FinBERT + columna vacía para etiqueta humana.
-2. Etiquetar `manual_label` (`positive|neutral|negative`).
-3. Medir accuracy y matriz de confusión contra `finbert_label`.
+1. Exportar CSV para etiquetado manual:
 
-Puedes reutilizar los comandos ad-hoc que ya ejecutaste en sesión o automatizarlo con scripts dedicados en `scripts/`.
+```bash
+python3 scripts/export_manual_labels.py --db data/sentiment.db --output data/manual_labeling_finbert.csv
+```
+
+2. Etiquetar `manual_label` con valores exactos: `positive|neutral|negative`.
+
+3. Evaluar métricas vs `finbert_label`:
+
+```bash
+python3 scripts/evaluate_manual_labels.py --csv data/manual_labeling_finbert.csv
+```
+
+Métricas reportadas:
+- Accuracy
+- Recall (macro y por clase)
+- F1 score (macro y por clase)
+- Matriz de confusión (manual -> finbert)
 
 ## Estado actual
 
