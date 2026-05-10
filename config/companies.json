@@ -1,0 +1,27 @@
+[
+  {
+    "name": "Apple",
+    "ticker": "AAPL",
+    "aliases": ["Apple", "$AAPL", "AAPL", "iPhone", "Mac"]
+  },
+  {
+    "name": "Tesla",
+    "ticker": "TSLA",
+    "aliases": ["Tesla", "$TSLA", "TSLA", "Elon", "Cybertruck"]
+  },
+  {
+    "name": "Nvidia",
+    "ticker": "NVDA",
+    "aliases": ["Nvidia", "NVIDIA", "$NVDA", "NVDA", "GeForce"]
+  },
+  {
+    "name": "Microsoft",
+    "ticker": "MSFT",
+    "aliases": ["Microsoft", "$MSFT", "MSFT", "Azure", "Windows"]
+  },
+  {
+    "name": "Amazon",
+    "ticker": "AMZN",
+    "aliases": ["Amazon", "$AMZN", "AMZN", "AWS"]
+  }
+]
