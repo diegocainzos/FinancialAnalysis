@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import unicodedata
 from dataclasses import dataclass
 from typing import Protocol
@@ -13,20 +14,20 @@ class MarketRelevanceFilter(Protocol):
         ...
 
 
-_KEYWORD_TERMS = {
+_MARKET_TERMS = {
     "stock",
     "stocks",
     "market",
     "markets",
     "earnings",
     "revenue",
-    "guidance",
+    "sales estimates",
     "shares",
-    "share",
+    "share price",
     "bullish",
     "bearish",
-    "buy",
-    "sell",
+    "buy rating",
+    "sell rating",
     "price target",
     "valuation",
     "p/e",
@@ -39,23 +40,63 @@ _KEYWORD_TERMS = {
     "nyse",
     "ipo",
     "quarterly",
+    "fiscal",
     "q1",
     "q2",
     "q3",
     "q4",
 }
 
+_WEAK_MARKET_TERMS = {
+    "guidance",
+    "buy",
+    "sell",
+    "share",
+}
+
+_CONFIRMING_MARKET_TERMS = {
+    "stock",
+    "stocks",
+    "earnings",
+    "revenue",
+    "eps",
+    "quarter",
+    "quarterly",
+    "fiscal",
+    "price target",
+    "valuation",
+    "analyst",
+    "nasdaq",
+    "nyse",
+}
+
 
 class KeywordMarketRelevanceFilter:
     """Fast keyword/cashtag filter for market relevance."""
+
+    def is_market_query(self, *, ticker: str, company_name: str, query: str) -> bool:
+        normalized = query.lower()
+        if f"${ticker.lower()}" in normalized:
+            return True
+        if ticker.lower() in normalized and any(term in normalized for term in _MARKET_TERMS):
+            return True
+        if company_name.lower() in normalized and any(term in normalized for term in _MARKET_TERMS):
+            return True
+        return False
 
     def is_market_relevant(self, *, ticker: str, company_name: str, text: str) -> bool:
         normalized = text.lower()
         if f"${ticker.lower()}" in normalized:
             return True
-        if ticker.lower() in normalized and any(term in normalized for term in _KEYWORD_TERMS):
+        if ticker.lower() in normalized and any(term in normalized for term in _MARKET_TERMS):
             return True
-        if company_name.lower() in normalized and any(term in normalized for term in _KEYWORD_TERMS):
+        if company_name.lower() in normalized and any(term in normalized for term in _MARKET_TERMS):
+            return True
+        if (
+            (ticker.lower() in normalized or company_name.lower() in normalized)
+            and any(term in normalized for term in _WEAK_MARKET_TERMS)
+            and any(term in normalized for term in _CONFIRMING_MARKET_TERMS)
+        ):
             return True
         return False
 
@@ -104,10 +145,11 @@ def parse_yes_no_response(text: str) -> bool:
         text = text.split("</think>")[-1]
         
     normalized = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii").lower()
+    tokens = re.findall(r"[a-z]+", normalized)
 
-    if "si" in normalized or "yes" in normalized:
+    if any(token in {"si", "yes"} for token in tokens):
         return True
-    if "no" in normalized:
+    if "no" in tokens:
         return False
 
     print(f"Warning: Unexpected LLM relevance response '{text}'. Defaulting to relevant.")
@@ -135,18 +177,29 @@ async def classify_market_relevance_via_llama_server(
 
     async def classify_one(index: int, item: RelevanceRequest, client: httpx.AsyncClient) -> None:
         prompt = (
-            "Instrucción: Eres un clasificador binario. Responde EXACTAMENTE con 'SI' o 'NO' sin más texto.\n"
-            "Determina si el texto habla del comportamiento bursatil, finanzas, inversion o mercado de la empresa.\n\n"
+            "Clasifica si el texto habla de bolsa, resultados trimestrales corporativos, ingresos, "
+            "acciones, valoración o mercado de la empresa.\n"
+            "NO cuentes usos de producto, soporte, música, coches, empleo o ingresos personales.\n"
+            "Responde solo SI o NO.\n\n"
+            "Empresa: Tesla (TSLA)\n"
+            "Texto: I love driving my Tesla car.\n"
+            "Respuesta: NO\n\n"
+            "Empresa: Meta (META)\n"
+            "Texto: Meta promotes a side hustle promising monthly earnings for creators.\n"
+            "Respuesta: NO\n\n"
+            "Empresa: Nvidia (NVDA)\n"
+            "Texto: NVDA shares fall after quarterly earnings.\n"
+            "Respuesta: SI\n\n"
             f"Empresa: {item.company_name} ({item.ticker})\n"
-            f"Texto: {item.text}\n\n"
+            f"Texto: {item.text}\n"
             "Respuesta:"
         )
 
         payload = {
             "prompt": prompt,
-            "n_predict": 256,
+            "n_predict": 4,
             "temperature": 0.0,
-            "stop": []
+            "stop": ["\n"]
         }
 
         async with semaphore:

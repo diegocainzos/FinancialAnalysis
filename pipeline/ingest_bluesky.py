@@ -122,7 +122,16 @@ async def _search_company_query(
 
 
 def _queries_for_company(ticker: str, name: str) -> list[str]:
-    return [f"${ticker}", ticker, f"{name} stock"]
+    # Bias retrieval toward market context to reduce product/support noise.
+    return [
+        f"${ticker}",
+        f"{ticker} stock",
+        f"{ticker} earnings",
+        f"{ticker} shares",
+        f"{name} stock",
+        f"{name} earnings",
+        f"{name} guidance",
+    ]
 
 
 if __name__ == "__main__":

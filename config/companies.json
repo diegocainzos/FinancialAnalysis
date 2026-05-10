@@ -23,5 +23,71 @@
     "name": "Amazon",
     "ticker": "AMZN",
     "aliases": ["Amazon", "$AMZN", "AMZN", "AWS"]
+  },
+  {
+    "name": "Alphabet",
+    "ticker": "GOOGL",
+    "aliases": ["Alphabet", "Google", "$GOOGL", "GOOGL", "Google Cloud"]
+  },
+  {
+    "name": "Meta",
+    "ticker": "META",
+    "aliases": ["Meta", "Facebook", "Zuckerberg", "$META", "META", "Instagram"]
+  },
+  {
+    "name": "Netflix",
+    "ticker": "NFLX",
+    "aliases": ["Netflix", "$NFLX", "NFLX"]
+  },
+  {
+    "name": "AMD",
+    "ticker": "AMD",
+    "aliases": ["AMD", "Advanced Micro Devices", "$AMD", "Ryzen"]
+  },
+  {
+    "name": "Intel",
+    "ticker": "INTC",
+    "aliases": ["Intel", "$INTC", "INTC"]
+  },
+  {
+    "name": "Broadcom",
+    "ticker": "AVGO",
+    "aliases": ["Broadcom", "$AVGO", "AVGO"]
+  },
+  {
+    "name": "JPMorgan Chase",
+    "ticker": "JPM",
+    "aliases": ["JPMorgan", "JPMorgan Chase", "$JPM", "JPM"]
+  },
+  {
+    "name": "Palantir",
+    "ticker": "PLTR",
+    "aliases": ["Palantir", "$PLTR", "PLTR"]
+  },
+  {
+    "name": "Coinbase",
+    "ticker": "COIN",
+    "aliases": ["Coinbase", "$COIN", "COIN"]
+  },
+  {
+    "name": "Oracle",
+    "ticker": "ORCL",
+    "aliases": ["Oracle", "$ORCL", "ORCL"]
+  },
+  {
+    "name": "Walmart",
+    "ticker": "WMT",
+    "aliases": ["Walmart", "$WMT", "WMT"]
+  },
+  {
+    "name": "Disney",
+    "ticker": "DIS",
+    "aliases": ["Disney", "$DIS", "DIS"]
+  },
+  {
+    "name": "Bank of America",
+    "ticker": "BAC",
+    "aliases": ["Bank of America", "$BAC", "BAC"]
   }
 ]
+

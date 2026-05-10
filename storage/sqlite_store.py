@@ -23,6 +23,7 @@ class PendingSentimentDocument:
     raw_document_id: int
     company_id: int
     provider: str
+    query: str
     text: str
     published_at: str | None
 
@@ -216,6 +217,7 @@ class SQLiteStore:
                 d.id as raw_document_id,
                 m.company_id,
                 d.provider,
+                d.query,
                 d.text,
                 d.published_at
             from company_mentions m
@@ -235,6 +237,7 @@ class SQLiteStore:
                 raw_document_id=row["raw_document_id"],
                 company_id=row["company_id"],
                 provider=row["provider"],
+                query=row["query"],
                 text=row["text"],
                 published_at=row["published_at"],
             )
