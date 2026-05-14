@@ -182,6 +182,50 @@ class SQLiteStoreTests(unittest.TestCase):
             self.assertEqual(count, 1)
             store.close()
 
+    def test_irrelevant_documents_can_be_excluded_from_pending_sentiment(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = SQLiteStore(Path(tmpdir) / "test.db")
+            store.init_schema()
+            store.upsert_companies([Company(id=None, name="Tesla", ticker="TSLA", aliases=[])])
+            company = store.list_companies()[0]
+            assert company.id is not None
+            document_id = store.save_raw_document(
+                provider="bluesky",
+                external_id="post-irrelevant",
+                company_id=company.id,
+                query="Tesla",
+                source_url=None,
+                title=None,
+                text="I love driving my Tesla car",
+                author=None,
+                published_at=None,
+                metadata={},
+            )
+            store.save_mention(
+                company_id=company.id,
+                raw_document_id=document_id,
+                matched_text="Tesla",
+                match_type="company_name",
+                confidence=0.75,
+            )
+
+            store.save_document_relevance(
+                company_id=company.id,
+                raw_document_id=document_id,
+                classifier_name="llm:llama-server",
+                is_relevant=False,
+            )
+
+            pending_without_filter = store.list_documents_pending_sentiment(model_name="test-model", limit=10)
+            pending_with_filter = store.list_documents_pending_sentiment(
+                model_name="test-model",
+                limit=10,
+                exclude_irrelevant_classifier="llm:llama-server",
+            )
+            self.assertEqual(len(pending_without_filter), 1)
+            self.assertEqual(pending_with_filter, [])
+            store.close()
+
 
 class MarketRelevanceTests(unittest.TestCase):
     def test_keyword_filter_accepts_market_text_and_rejects_product_text(self) -> None:
@@ -266,7 +310,7 @@ class LLMMarketRelevanceTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ProcessSentimentPipelineTests(unittest.TestCase):
-    def test_llm_filter_uses_keyword_prefilter_and_reports_timing(self) -> None:
+    def test_llm_filter_sends_all_pending_documents_to_classifier(self) -> None:
         class FakeAnalyzer:
             model_name = "fake-sentiment"
 
@@ -281,9 +325,10 @@ class ProcessSentimentPipelineTests(unittest.TestCase):
         async def fake_relevance_classifier(requests, *, api_url: str, concurrency: int):
             self.assertEqual(api_url, "http://fake:8080/completion")
             self.assertEqual(concurrency, 1)
-            self.assertEqual(len(requests), 1)
+            self.assertEqual(len(requests), 2)
             self.assertIn("stock", requests[0].text.lower())
-            return [True]
+            self.assertIn("tesla car", requests[1].text.lower())
+            return [True, False]
 
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = Path(tmpdir) / "test.db"
@@ -339,13 +384,37 @@ class ProcessSentimentPipelineTests(unittest.TestCase):
             )
 
             self.assertEqual(stats.pending, 2)
-            self.assertEqual(stats.llm_candidates, 1)
+            self.assertEqual(stats.llm_candidates, 2)
             self.assertEqual(stats.processed, 1)
             self.assertEqual(stats.skipped_irrelevant, 1)
             self.assertGreaterEqual(stats.total_seconds, 0.0)
             self.assertGreaterEqual(stats.keyword_filter_seconds, 0.0)
             self.assertGreaterEqual(stats.llm_filter_seconds, 0.0)
             self.assertGreaterEqual(stats.sentiment_seconds, 0.0)
+
+            store = SQLiteStore(db_path)
+            relevance_rows = store.conn.execute(
+                "select is_relevant, count(*) as n from document_relevance group by is_relevant"
+            ).fetchall()
+            self.assertEqual({row["is_relevant"]: row["n"] for row in relevance_rows}, {0: 1, 1: 1})
+            store.close()
+
+            async def fail_if_called(requests, *, api_url: str, concurrency: int):
+                raise AssertionError("Irrelevant documents should not be classified again")
+
+            second_stats = process_pending_sentiment(
+                db_path=str(db_path),
+                limit=10,
+                model="finbert",
+                relevance_filter="llm",
+                llama_api_url="http://fake:8080/completion",
+                llama_concurrency=1,
+                analyzer=FakeAnalyzer(),
+                relevance_classifier=fail_if_called,
+            )
+            self.assertEqual(second_stats.pending, 0)
+            self.assertEqual(second_stats.llm_candidates, 0)
+            self.assertEqual(second_stats.processed, 0)
 
 
 class PipelineQueryTests(unittest.TestCase):

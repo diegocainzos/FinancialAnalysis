@@ -19,7 +19,7 @@ from nlp.market_relevance import (
     classify_market_relevance_via_llama_server,
 )
 from nlp.sentiment_analyzer import FinBertSentimentAnalyzer, SentimentAnalyzer, VaderSentimentAnalyzer
-from storage.sqlite_store import SQLiteStore
+from storage.sqlite_store import PendingSentimentDocument, SQLiteStore
 
 
 @dataclass(frozen=True)
@@ -44,6 +44,7 @@ def build_analyzer(*, model: str) -> SentimentAnalyzer:
 
 
 RelevanceClassifier = Callable[..., Awaitable[list[bool]]]
+LLAMA_RELEVANCE_CLASSIFIER = "llm:llama-server"
 
 
 def process_pending_sentiment(
@@ -67,45 +68,27 @@ def process_pending_sentiment(
     analyzer = analyzer or build_analyzer(model=model)
 
     companies_by_id = {c.id: c for c in store.list_companies() if c.id is not None}
-    pending = store.list_documents_pending_sentiment(model_name=analyzer.model_name, limit=limit)
+    exclude_irrelevant_classifier = LLAMA_RELEVANCE_CLASSIFIER if relevance_filter == "llm" else None
+    pending = store.list_documents_pending_sentiment(
+        model_name=analyzer.model_name,
+        limit=limit,
+        exclude_irrelevant_classifier=exclude_irrelevant_classifier,
+    )
 
     processed = 0
     skipped_irrelevant = 0
     llm_candidates = 0
 
     if relevance_filter == "llm":
-        prepared: list[tuple[object, str]] = []
+        prepared: list[tuple[PendingSentimentDocument, str]] = []
         requests: list[RelevanceRequest] = []
-        keyword_filter = KeywordMarketRelevanceFilter()
 
         for document in pending:
             company = companies_by_id.get(document.company_id)
             if company is None:
                 continue
-            keyword_start = perf_counter()
-            is_query_relevant = keyword_filter.is_market_query(
-                ticker=company.ticker,
-                company_name=company.name,
-                query=document.query,
-            )
-            keyword_filter_seconds += perf_counter() - keyword_start
-            if not is_query_relevant:
-                skipped_irrelevant += 1
-                continue
 
             cleaned = clean_text(document.text)
-
-            keyword_start = perf_counter()
-            is_keyword_relevant = keyword_filter.is_market_relevant(
-                ticker=company.ticker,
-                company_name=company.name,
-                text=cleaned,
-            )
-            keyword_filter_seconds += perf_counter() - keyword_start
-            if not is_keyword_relevant:
-                skipped_irrelevant += 1
-                continue
-
             prepared.append((document, cleaned))
             requests.append(
                 RelevanceRequest(
@@ -127,8 +110,19 @@ def process_pending_sentiment(
                 )
             )
             llm_filter_seconds += perf_counter() - llm_start
+            if len(relevance_flags) != len(requests):
+                raise RuntimeError(
+                    "LLM relevance classifier returned "
+                    f"{len(relevance_flags)} results for {len(requests)} requests"
+                )
 
         for (document, cleaned), is_relevant in zip(prepared, relevance_flags):
+            store.save_document_relevance(
+                company_id=document.company_id,
+                raw_document_id=document.raw_document_id,
+                classifier_name=LLAMA_RELEVANCE_CLASSIFIER,
+                is_relevant=is_relevant,
+            )
             if not is_relevant:
                 skipped_irrelevant += 1
                 continue

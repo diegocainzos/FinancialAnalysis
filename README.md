@@ -17,7 +17,7 @@ ingestion/
 
 pipeline/
   ingest_bluesky.py           # CLI de ingesta + persistencia + mention detection
-  process_sentiment.py        # CLI de scoring de sentimiento
+  process_sentiment.py        # CLI de filtrado de relevancia + scoring de sentimiento
 
 nlp/
   mention_detector.py         # Detector rule-based (ticker/cashtag/nombre/alias)
@@ -45,10 +45,11 @@ data/
    - persiste en `company_mentions` con deduplicación por `(company_id, raw_document_id, matched_text)`.
 4. **Limpieza de texto** (`nlp.cleaner`):
    - elimina URLs y normaliza espacios.
-5. **Sentiment scoring** (`pipeline.process_sentiment`):
+5. **Filtrado de relevancia y sentiment scoring** (`pipeline.process_sentiment`):
    - por defecto usa **FinBERT** `ProsusAI/finbert`.
    - opcional: `--model vader`.
-   - persiste en `sentiment_results` con deduplicación por `(company_id, raw_document_id, model_name)`.
+   - opcional: `--relevance-filter llm` usa `llama-server` para separar textos económicos de menciones irrelevantes.
+   - persiste la relevancia en `document_relevance` y el sentimiento en `sentiment_results`.
 
 ## Modelo de sentimiento
 
@@ -66,8 +67,11 @@ Mapeo de score en FinBERT:
 - `raw_documents`
 - `company_mentions`
 - `sentiment_results`
+- `document_relevance`
 
 La inicialización del esquema está en `storage/sqlite_store.py` (`SQLiteStore.init_schema`).
+
+`document_relevance` guarda decisiones de relevancia por `(company_id, raw_document_id, classifier_name)`. Si `llama-server` marca un documento como irrelevante con `llm:llama-server`, futuras ejecuciones con `--relevance-filter llm` no vuelven a clasificarlo.
 
 ## Requisitos
 
@@ -111,6 +115,12 @@ python3 -m pipeline.ingest_bluesky --company TSLA --limit 50 --lang en --concurr
 
 ```bash
 python3 -m pipeline.process_sentiment --limit 100 --model finbert
+```
+
+Con filtro LLM de relevancia económica:
+
+```bash
+python3 -m pipeline.process_sentiment --limit 1000000 --model finbert --relevance-filter llm --llama-concurrency 10
 ```
 
 Modelo alternativo:
@@ -175,9 +185,26 @@ Métricas reportadas:
 - F1 score (macro, weighted y por clase)
 - Matriz de confusión (manual -> finbert)
 
+## Prueba final de evaluación
+
+Archivos generados para el trabajo universitario:
+
+- `docs/trabajo_final.md`: memoria redactada de la tarea de evaluación.
+- `data/final_manual_review_100.csv`: 100 ejemplos con etiquetado manual de relevancia económica y sentimiento.
+- `data/metrics/final_manual_review_100_eval.json`: métricas de FinBERT frente al etiquetado manual.
+
+Reproducir evaluación final:
+
+```bash
+python3 scripts/evaluate_manual_labels.py --csv data/final_manual_review_100.csv --output-json data/metrics/final_manual_review_100_eval.json
+```
+
+Resultado de la muestra final: accuracy `0.6600`, recall macro `0.5879`, F1 macro `0.5823`.
+
 ## Estado actual
 
 - Ingesta asíncrona desde Bluesky operativa.
 - Detección de menciones multiempresa operativa.
+- Filtro LLM de relevancia económica integrado con persistencia de irrelevantes.
 - Sentimiento con FinBERT integrado en pipeline.
 - Batería de tests unitaria/integración ligera en verde.

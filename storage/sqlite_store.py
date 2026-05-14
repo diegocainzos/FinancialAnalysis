@@ -93,11 +93,25 @@ class SQLiteStore:
                 foreign key(raw_document_id) references raw_documents(id)
             );
 
+            create table if not exists document_relevance (
+                id integer primary key autoincrement,
+                company_id integer not null,
+                raw_document_id integer not null,
+                classifier_name text not null,
+                is_relevant integer not null,
+                processed_at text not null,
+                unique(company_id, raw_document_id, classifier_name),
+                foreign key(company_id) references companies(id),
+                foreign key(raw_document_id) references raw_documents(id)
+            );
+
             create index if not exists idx_raw_documents_provider on raw_documents(provider);
             create index if not exists idx_raw_documents_company on raw_documents(company_id);
             create index if not exists idx_raw_documents_published on raw_documents(published_at);
             create index if not exists idx_sentiment_company on sentiment_results(company_id);
             create index if not exists idx_sentiment_document on sentiment_results(raw_document_id);
+            create index if not exists idx_document_relevance_lookup
+                on document_relevance(company_id, raw_document_id, classifier_name, is_relevant);
             """
         )
         self.conn.commit()
@@ -210,9 +224,24 @@ class SQLiteStore:
         *,
         model_name: str,
         limit: int = 100,
+        exclude_irrelevant_classifier: str | None = None,
     ) -> list[PendingSentimentDocument]:
-        rows = self.conn.execute(
+        params: list[str | int] = [model_name]
+        relevance_join = ""
+        relevance_filter = ""
+        if exclude_irrelevant_classifier is not None:
+            relevance_join = """
+            left join document_relevance r
+                on r.raw_document_id = m.raw_document_id
+                and r.company_id = m.company_id
+                and r.classifier_name = ?
             """
+            relevance_filter = "and coalesce(r.is_relevant, 1) = 1"
+            params.append(exclude_irrelevant_classifier)
+        params.append(limit)
+
+        rows = self.conn.execute(
+            f"""
             select distinct
                 d.id as raw_document_id,
                 m.company_id,
@@ -226,11 +255,13 @@ class SQLiteStore:
                 on s.raw_document_id = m.raw_document_id
                 and s.company_id = m.company_id
                 and s.model_name = ?
+            {relevance_join}
             where s.id is null
+                {relevance_filter}
             order by d.published_at desc, d.id desc
             limit ?
             """,
-            (model_name, limit),
+            params,
         ).fetchall()
         return [
             PendingSentimentDocument(
@@ -273,6 +304,33 @@ class SQLiteStore:
                 sentiment_score,
                 confidence,
                 model_name,
+                _dt(datetime.now(timezone.utc)),
+            ),
+        )
+        self.conn.commit()
+
+    def save_document_relevance(
+        self,
+        *,
+        company_id: int,
+        raw_document_id: int,
+        classifier_name: str,
+        is_relevant: bool,
+    ) -> None:
+        self.conn.execute(
+            """
+            insert into document_relevance(
+                company_id, raw_document_id, classifier_name, is_relevant, processed_at
+            ) values (?, ?, ?, ?, ?)
+            on conflict(company_id, raw_document_id, classifier_name) do update set
+                is_relevant = excluded.is_relevant,
+                processed_at = excluded.processed_at
+            """,
+            (
+                company_id,
+                raw_document_id,
+                classifier_name,
+                int(is_relevant),
                 _dt(datetime.now(timezone.utc)),
             ),
         )

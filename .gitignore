@@ -23,3 +23,11 @@ htmlcov/
 Thumbs.db
 .vscode/
 .idea/
+
+# Local agent/session artifacts
+pi-session-*.html
+pisession.jsonl
+
+# Generated manual-labeling scratch files
+/data/manual_labeling_finbert.csv
+/data/metrics/finbert_eval.json
