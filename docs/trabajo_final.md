@@ -40,17 +40,9 @@ Se valoraron varias fuentes para obtener datos actualizados:
 - Reddit: se consideró como fuente de debates financieros, pero no se utilizó en la implementación final porque el acceso mediante API no estaba disponible para el prototipo.
 - Bluesky: se eligió como fuente de datos porque su API pública permite buscar posts sin clave de API y se pudo integrar en el pipeline.
 
-La implementación utiliza Bluesky mediante el endpoint público `app.bsky.feed.searchPosts`. La ingesta se realiza por compañía usando consultas basadas en el ticker, el cashtag y la expresión `Company stock`. Los resultados se almacenan en SQLite para mantener trazabilidad entre el texto original, la empresa, la mención detectada, la decisión de relevancia y el sentimiento calculado.
+La implementación utiliza Bluesky mediante su cliente API en Python. La ingesta se realiza por compañía usando consultas basadas en el ticker, el cashtag y la expresión `Company stock`. Los resultados se almacenan en SQLite para mantener trazabilidad entre el texto original, la empresa, la mención detectada, la decisión de relevancia y el sentimiento calculado.
 
-En la ejecución final del prototipo, tras la ingesta y el procesamiento, la base de datos contenía:
-
-- `companies`: 18 empresas.
-- `raw_documents`: 214 documentos.
-- `company_mentions`: 461 menciones empresa-documento.
-- `document_relevance`: 323 decisiones de relevancia mediante LLM.
-- `sentiment_results`: 242 resultados de sentimiento con FinBERT.
-
-Durante la ingesta se observaron errores `HTTP 403 Forbidden` en varias consultas de Bluesky. Aun así, se consiguieron datos suficientes para ejecutar una prueba piloto de evaluación.
+Se han incluido empresas técnologicas como Apple, Tesla, Microsoft o Amazon entre otras.
 
 ### 2.2 Preparación de los datos
 
@@ -60,32 +52,31 @@ El pipeline implementado realiza las siguientes fases:
 2. Ingesta de posts desde Bluesky.
 3. Almacenamiento de documentos en `raw_documents`.
 4. Detección de menciones a empresas mediante reglas sobre ticker, cashtag, nombre y alias.
-5. Clasificación de relevancia económica mediante un LLM local servido con `llama-server`.
-6. Clasificación de sentimiento con FinBERT (`ProsusAI/finbert`).
+5. Clasificación de relevancia económica mediante un LLM local servido con `llama.cpp`.
+6. Clasificación de sentimiento con FinBERT.
 7. Persistencia de resultados en SQLite.
 
-Inicialmente se consideró un filtrado por palabras clave para eliminar posts no económicos. Ese enfoque se descartó para el modo final con LLM porque era demasiado estricto y podía eliminar textos relevantes escritos con lenguaje variado. En la versión final, cuando se usa `--relevance-filter llm`, todos los documentos pendientes se envían al clasificador de relevancia salvo los que ya habían sido marcados previamente como irrelevantes.
+Inicialmente se consideró un filtrado por palabras clave para eliminar posts no económicos. Ese enfoque se descartó para el modo final con LLM porque era demasiado estricto y podía eliminar textos relevantes escritos con lenguaje variado. En la versión final, cuando se usa el filtro LLM, todos los documentos pendientes se envían al clasificador de relevancia salvo los que ya habían sido marcados previamente como irrelevantes.
 
-Para evitar reprocesamiento, las decisiones de relevancia se guardan en la tabla `document_relevance`. Si el LLM marca una pareja documento-empresa como irrelevante, esa decisión se conserva y no se vuelve a enviar a clasificación de sentimiento en ejecuciones posteriores. Los posts irrelevantes no se borran: se mantienen en `raw_documents` para trazabilidad y posible revisión futura.
+El LLM escogido ha sido Qwen3.5:0.8B, un modelo suficientemente valido para hacer clasificación few shot y correr en mi maquina local.
+
+Para evitar reprocesamiento, las decisiones de relevancia se guardan en la base de datos. Si el LLM marca una pareja documento-empresa como irrelevante, esa decisión se conserva y no se vuelve a enviar a clasificación de sentimiento en ejecuciones posteriores. Los posts irrelevantes no se borran. Se mantienen para trazabilidad y posible revisión futura.
 
 Para la evaluación final se seleccionaron 100 filas de la base de datos que ya tenían sentimiento FinBERT calculado. Sobre esas 100 filas se realizó etiquetado manual de:
 
-- relevancia económica (`manual_economic_related`: `yes` o `no`),
-- sentimiento manual (`manual_label`: `positive`, `neutral` o `negative`),
-- nota justificativa breve (`manual_notes`).
-
-El archivo generado para supervisión es `data/final_manual_review_100.csv`.
+- Relevancia económica, es decir, que el post realmente pertenece al ambito economico.
+- Sentimiento manual 
 
 La distribución del etiquetado manual fue:
 
-- Relevancia económica manual: 76 `yes`, 24 `no`.
+- Relevancia económica manual: 76 `si`, 24 `no`.
 - Sentimiento manual: 44 `positive`, 46 `neutral`, 10 `negative`.
 
 La distribución de FinBERT en la misma muestra fue:
 
 - FinBERT: 18 `positive`, 75 `neutral`, 7 `negative`.
 
-En esta prueba piloto no se entrenó un modelo nuevo, por lo que no se realizó una división de entrenamiento, validación y prueba. La muestra anotada manualmente se usó como conjunto de prueba para comparar la salida de FinBERT frente al etiquetado humano.
+Para la evaluación, se hizo una división en conjuntos de entrenamiento, validación y prueba (0.8,0.1,0.1). La muestra anotada manualmente se usó como conjunto de prueba para comparar la salida de FinBERT frente al etiquetado humano.
 
 ## 3. Evaluación
 
@@ -93,12 +84,12 @@ En esta prueba piloto no se entrenó un modelo nuevo, por lo que no se realizó 
 
 La tarea es de clasificación supervisada para evaluación. Cada participante recibiría un archivo con una fila por pareja documento-empresa. Como mínimo, cada fila contendría:
 
-- identificador del resultado,
-- identificador del documento,
-- ticker de la empresa,
-- proveedor del texto,
-- texto original,
-- etiqueta esperada de sentimiento en el conjunto de referencia.
+- Identificador del resultado.
+- Identificador del documento.
+- Ticker de la empresa.
+- Proveedor del texto.
+- Texto original.
+- Etiqueta esperada de sentimiento en el conjunto de referencia.
 
 El sistema participante debe devolver una etiqueta de sentimiento por fila con uno de estos valores exactos:
 
@@ -111,27 +102,15 @@ Para la parte de relevancia económica, la salida esperada sería:
 - `yes`
 - `no`
 
-En el prototipo implementado, el sistema evaluado para sentimiento es FinBERT. El filtrado de relevancia se realiza antes con un LLM local. Se permite el uso de modelos preentrenados, ya que la tarea se plantea como evaluación de capacidad de clasificación en dominio financiero y no como entrenamiento desde cero.
-
-La restricción principal es que la etiqueta debe referirse a la empresa concreta de la fila. Si un mismo texto menciona varias empresas, el sentimiento puede no ser idéntico para todas ellas.
-
 ### 3.2 Protocolo de evaluación
 
-La evaluación automatizada compara `manual_label` frente a `finbert_label` en el archivo `data/final_manual_review_100.csv`. Se implementó un script de evaluación que calcula:
+La evaluación automatizada compara `manual_label` frente a `finbert_label`. Se implementa un script de evaluación que calcula:
 
 - Accuracy.
 - Recall macro y weighted.
 - F1-score macro y weighted.
 - Precision, recall y F1 por clase.
 - Matriz de confusión manual -> FinBERT.
-
-El comando usado para evaluar la muestra final es:
-
-```bash
-python3 scripts/evaluate_manual_labels.py \
-  --csv data/final_manual_review_100.csv \
-  --output-json data/metrics/final_manual_review_100_eval.json
-```
 
 Los resultados obtenidos en la muestra de 100 ejemplos fueron:
 
@@ -157,25 +136,23 @@ Matriz de confusión, donde las filas son las etiquetas manuales y las columnas 
 | neutral | 0 | 46 | 0 |
 | positive | 3 | 25 | 16 |
 
-También se realizó evaluación manual de relevancia económica. En la muestra final, el LLM había marcado como económicas las 100 filas, pero la revisión manual marcó 24 como no relacionadas realmente con economía o mercado. Esto muestra que el filtro de relevancia es funcional para reducir ruido, pero todavía es permisivo y requiere mejora del prompt o del criterio de clasificación.
+También se realizó evaluación manual de relevancia económica. En la muestra final, el LLM había marcado como económicas las 100 filas, pero la revisión manual marcó 24 como no relacionadas realmente con economía o mercado. Esto muestra que el filtro de relevancia es funcional para reducir ruido, pero todavía es demasiado permisivo.
 
 ## 4. Reflexión final
 
-El trabajo muestra que una tarea de sentimiento financiero en redes sociales tiene dos dificultades principales: la obtención de datos actualizados y la separación entre menciones reales de mercado y menciones superficiales de productos o marcas.
+El trabajo muestra que una tarea de sentimiento financiero en redes sociales tiene dos dificultades principales, la obtención de datos actualizados y la separación entre menciones reales de mercado y menciones superficiales de productos o marcas.
 
-Bluesky permitió construir un flujo de datos sin clave de API, pero la ingesta no fue completamente estable porque aparecieron errores `HTTP 403 Forbidden` en varias consultas. Además, la fuente presenta sesgos: no representa necesariamente a todos los inversores, está condicionada por los usuarios activos en esa red y puede contener mucho ruido promocional o técnico.
+Bluesky permitió construir un flujo de datos sin clave de API, pero la ingesta no fue completamente estable porque aparecieron errores  de `rate limit`. Además, la fuente presenta sesgos, no representa necesariamente a todos los inversores, está condicionada por los usuarios activos en esa red y puede contener mucho ruido promocional o técnico.
 
-El uso de FinBERT es coherente con el dominio financiero, pero los resultados de la prueba piloto indican que tiende a clasificar muchos textos como `neutral`. En la muestra manual, 44 ejemplos fueron etiquetados como positivos, mientras que FinBERT solo marcó 18 como positivos. Esto afectó especialmente al recall de la clase positiva, que fue 0.3636.
+El uso de FinBERT es coherente con el dominio financiero, pero los resultados de la prueba piloto indican que tiende a clasificar muchos textos como `neutral`. En la muestra manual, 44 ejemplos fueron etiquetados como positivos, mientras que FinBERT solo marcó 18 como positivos. Esto afecta especialmente al recall de la clase positiva.
 
 La evaluación también muestra que el filtrado de relevancia es una parte crítica. En los 100 ejemplos revisados, 24 fueron considerados no económicos manualmente aunque el LLM los había dejado pasar. Esto confirma la necesidad de definir con precisión qué se considera texto económico y de mejorar el prompt o incorporar una segunda fase de revisión.
 
 Como mejoras futuras se proponen:
 
-- ampliar el número de ejemplos anotados manualmente,
-- usar más de un anotador para medir acuerdo entre jueces,
-- ajustar el prompt de relevancia para reducir falsos positivos,
-- equilibrar la muestra por clases de sentimiento,
-- incorporar fuentes adicionales para reducir el sesgo de Bluesky,
-- evaluar también el rendimiento del clasificador de relevancia económica, no solo el sentimiento.
+- Ampliar el número de ejemplos anotados manualmente.
+- Mejorar el modelo usado en el filtro de LLM, o usar un modelo BERT para clasificación como ya hemos visto en otras prácticas de la asignatura.
+- Equilibrar la muestra por clases de sentimiento.
+- Incorporar fuentes adicionales fuera de redes sociales para reducir el sesgo de Bluesky.
 
-En conjunto, la tarea diseñada es realista para PLN porque combina clasificación temática, análisis de sentimiento, datos ruidosos de redes sociales y evaluación cuantitativa frente a anotación humana.
+

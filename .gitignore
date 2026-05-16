@@ -14,9 +14,8 @@ venv/
 .coverage
 htmlcov/
 
-# Environment files
-.env
-.env.*
+data/
+
 
 # OS/editor files
 .DS_Store
