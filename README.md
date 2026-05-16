@@ -6,6 +6,10 @@ Pipeline modular para ingesta de texto financiero (redes sociales), detección d
 
 Construir una base de datos de sentimiento por empresa que sirva como capa de datos para análisis cuantitativo, comparación de modelos y futura API/dashboard.
 
+## Vista previa
+
+![Captura del proyecto](public/image_readme.png)
+
 ## Arquitectura del repositorio
 
 ```txt
